@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Siniestros viales — Dashboard</title>
+  <meta name="description" content="Dashboard para analizar siniestros viales, puntos conflictivos, vehículos involucrados y posible relación con semáforos.">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root{
+      --bg:#f5f7fb; --card:#fff; --text:#172033; --muted:#6b7280;
+      --line:#e6eaf0; --accent:#2563eb; --accent2:#0f766e; --danger:#dc2626;
+      --shadow:0 8px 28px rgba(15,23,42,.07); --radius:18px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .wrap{max-width:1440px;margin:auto;padding:28px}
+    header{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}
+    h1{font-size:30px;margin:0 0 7px;letter-spacing:-.7px}
+    .subtitle{color:var(--muted);max-width:880px;line-height:1.5}
+    .badge{background:#e8efff;color:#1d4ed8;padding:8px 12px;border-radius:999px;font-weight:700;font-size:13px;white-space:nowrap}
+    .filters,.card,.kpi{background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:var(--radius)}
+    .filters{padding:16px;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
+    label{font-size:12px;font-weight:700;color:#4b5563;margin-bottom:6px;display:block}
+    select,input{width:100%;height:40px;border:1px solid #d8dee8;border-radius:10px;padding:0 11px;background:white;color:var(--text);outline:none}
+    .grid-kpi{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px}
+    .kpi{padding:17px}
+    .kpi .label{font-size:12px;color:var(--muted);font-weight:700}
+    .kpi .num{font-size:28px;font-weight:800;margin-top:5px}
+    .kpi .small{font-size:11px;color:var(--muted);margin-top:3px}
+    .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;margin-bottom:18px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+    .card{padding:18px}
+    .card h2{font-size:17px;margin:0 0 3px}
+    .card p{font-size:12px;color:var(--muted);margin:0 0 14px}
+    .chart{height:320px}
+    #map{height:420px;border-radius:13px;overflow:hidden}
+    .table-wrap{overflow:auto;max-height:430px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+    th{position:sticky;top:0;background:#fafbfc;z-index:1}
+    .note{background:#fff8e7;border:1px solid #f4d58b;color:#775514;padding:13px 15px;border-radius:12px;font-size:12px;line-height:1.5;margin-bottom:18px}
+    .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+    .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
+    footer{color:var(--muted);font-size:11px;padding:4px 2px 18px}
+    @media(max-width:1050px){.filters{grid-template-columns:repeat(3,1fr)}.grid-kpi{grid-template-columns:repeat(3,1fr)}.grid,.grid2{grid-template-columns:1fr}}
+    @media(max-width:650px){.wrap{padding:16px}header{display:block}.badge{display:inline-block;margin-top:10px}.filters{grid-template-columns:1fr}.grid-kpi{grid-template-columns:repeat(2,1fr)}h1{font-size:24px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Siniestros viales — Dashboard</h1>
+      <div class="subtitle">Análisis de hechos viales y lugares peligrosos: puntos conflictivos, vehículos involucrados, evolución temporal y posible relación con la red de semáforos.</div>
+    </div>
+    <div class="badge">Observatorio Vial · Base cargada</div>
+  </header>
+
+  <div class="note">
+    <strong>Alcance de los datos:</strong> la base cargada contiene registros de <strong>2018</strong>. Por eso el dashboard muestra la evolución <strong>mensual dentro de 2018</strong> y no inventa una comparación entre años. La variable “Semáforo” permite una relación exploratoria con la presencia/estado del semáforo en el lugar del hecho; no demuestra causalidad.
+  </div>
+
+  <section class="filters">
+    <div><label>Mes</label><select id="month"><option value="">Todos</option></select></div>
+    <div><label>Tipo de vía</label><select id="roadType"><option value="">Todos</option></select></div>
+    <div><label>Semáforo</label><select id="signal"><option value="">Todos</option></select></div>
+    <div><label>Tipo de siniestro</label><select id="accType"><option value="">Todos</option></select></div>
+    <div><label>Buscar calle</label><input id="street" placeholder="Ej.: Mendoza"></div>
+  </section>
+
+  <section class="grid-kpi">
+    <div class="kpi"><div class="label">Siniestros</div><div class="num" id="kTotal">—</div><div class="small">registros filtrados</div></div>
+    <div class="kpi"><div class="label">Vehículos involucrados</div><div class="num" id="kVehicles">—</div><div class="small">suma de vehículos</div></div>
+    <div class="kpi"><div class="label">Heridos</div><div class="num" id="kInjured">—</div><div class="small">personas heridas</div></div>
+    <div class="kpi"><div class="label">Fallecidos</div><div class="num" id="kDead">—</div><div class="small">personas fallecidas</div></div>
+    <div class="kpi"><div class="label">Con semáforo funcionando</div><div class="num" id="kSignal">—</div><div class="small">% de los registros con dato</div></div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Evolución mensual de los siniestros</h2>
+      <p>Permite observar cómo se distribuyen los hechos durante 2018.</p>
+      <div class="chart"><canvas id="monthly"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Semáforos y siniestros</h2>
+      <p>Distribución según el estado informado del semáforo.</p>
+      <div class="chart"><canvas id="signals"></canvas></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card">
+      <h2>Calles con más siniestros</h2>
+      <p>Ranking de vías donde se concentran los hechos registrados.</p>
+      <div class="chart"><canvas id="streets"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Tipo de siniestro</h2>
+      <p>Principales categorías registradas.</p>
+      <div class="chart"><canvas id="types"></canvas></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:18px">
+    <h2>Mapa de puntos conflictivos</h2>
+    <p>Cada punto representa un siniestro con coordenadas válidas. El mapa se actualiza con los filtros.</p>
+    <div id="map"></div>
+    <div class="legend"><span>● Siniestro registrado</span><span>La concentración de puntos ayuda a detectar zonas conflictivas.</span></div>
+  </section>
+
+  <section class="card" style="margin-bottom:18px">
+    <h2>Intersecciones con mayor concentración</h2>
+    <p>Se combinan calle principal y calles de referencia para localizar cruces frecuentes.</p>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Intersección / ubicación</th><th>Siniestros</th><th>Vehículos</th><th>Heridos</th><th>Fallecidos</th></tr></thead><tbody id="junctions"></tbody></table></div>
+  </section>
+
+  <section class="card" style="margin-bottom:18px">
+    <h2>Detalle de registros</h2>
+    <p>Vista resumida de los datos utilizados por el dashboard.</p>
+    <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Hora</th><th>Vía</th><th>Ubicación</th><th>Vehículos</th><th>Heridos</th><th>Fallecidos</th><th>Tipo</th><th>Semáforo</th></tr></thead><tbody id="detail"></tbody></table></div>
+  </section>
+
+  <footer>Dashboard estático preparado para desplegar en Vercel. Los datos se encuentran en <code>data.js</code>.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="data.js"></script>
+<script>
+const raw = window.SINIESTROS || [];
+const n = x => Number(x || 0);
+const clean = x => (x == null || x === "" ? "Sin dato" : String(x));
+const norm = x => clean(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+const months = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+function uniqueSorted(key){
+  return [...new Set(raw.map(r=>clean(r[key])).filter(x=>x!=="Sin dato"))].sort((a,b)=>a.localeCompare(b,"es"));
+}
+function fill(id, values){
+  const s=document.getElementById(id);
+  values.forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;s.appendChild(o)});
+}
+fill("roadType", uniqueSorted("via_publica"));
+fill("signal", uniqueSorted("semaforo"));
+fill("accType", uniqueSorted("tipo_siniestro_multiple"));
+months.forEach((m,i)=>{const o=document.createElement("option");o.value=String(i+1).padStart(2,"0");o.textContent=m;document.getElementById("month").appendChild(o)});
+
+let charts={};
+const map=L.map("map").setView([-27.48,-58.83],13);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+let layer=L.layerGroup().addTo(map);
+
+function groupCount(rows,key,limit=10){
+  const m={}; rows.forEach(r=>{const k=clean(r[key]);m[k]=(m[k]||0)+1});
+  return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,limit);
+}
+function destroy(name){if(charts[name]) charts[name].destroy()}
+function makeChart(name,id,type,labels,data,opts={}){
+  destroy(name);
+  charts[name]=new Chart(document.getElementById(id),{type,data:{labels,datasets:[{data,borderWidth:2,tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:type==="doughnut"?{}:{y:{beginAtZero:true,ticks:{precision:0}}},...opts}});
+}
+
+function filtered(){
+  const month=document.getElementById("month").value;
+  const road=document.getElementById("roadType").value;
+  const sig=document.getElementById("signal").value;
+  const typ=document.getElementById("accType").value;
+  const street=norm(document.getElementById("street").value).trim();
+  return raw.filter(r=>{
+    const date=clean(r.siniestro_fecha);
+    const okMonth=!month || date.slice(5,7)===month;
+    const okRoad=!road || clean(r.via_publica)===road;
+    const okSig=!sig || clean(r.semaforo)===sig;
+    const okTyp=!typ || clean(r.tipo_siniestro_multiple)===typ;
+    const hayStreet=!street || norm(r.nombre_via).includes(street) || norm(r.entre_calle_1).includes(street) || norm(r.entre_calle_2).includes(street);
+    return okMonth&&okRoad&&okSig&&okTyp&&hayStreet;
+  });
+}
+
+function update(){
+  const rows=filtered();
+  document.getElementById("kTotal").textContent=rows.length.toLocaleString("es-AR");
+  document.getElementById("kVehicles").textContent=rows.reduce((a,r)=>a+n(r.vehiculos),0).toLocaleString("es-AR");
+  document.getElementById("kInjured").textContent=rows.reduce((a,r)=>a+n(r.heridos),0).toLocaleString("es-AR");
+  document.getElementById("kDead").textContent=rows.reduce((a,r)=>a+n(r.fallecidos),0).toLocaleString("es-AR");
+  const known=rows.filter(r=>r.semaforo!=null && r.semaforo!=="");
+  const working=known.filter(r=>norm(r.semaforo)==="funciona").length;
+  document.getElementById("kSignal").textContent=(known.length?((working/known.length)*100).toFixed(1):"0")+"%";
+
+  const byMonth=months.map((_,i)=>rows.filter(r=>clean(r.siniestro_fecha).slice(5,7)===String(i+1).padStart(2,"0")).length);
+  makeChart("monthly","monthly","line",months,byMonth,{elements:{point:{radius:3}}});
+
+  const sg=groupCount(rows,"semaforo",10);
+  makeChart("signals","signals","doughnut",sg.map(x=>x[0]),sg.map(x=>x[1]));
+
+  const st=groupCount(rows,"nombre_via",10);
+  makeChart("streets","streets","bar",st.map(x=>x[0]),st.map(x=>x[1]),{indexAxis:"y",plugins:{legend:{display:false}}});
+
+  const ty=groupCount(rows,"tipo_siniestro_multiple",8);
+  makeChart("types","types","bar",ty.map(x=>x[0]),ty.map(x=>x[1]),{indexAxis:"y",plugins:{legend:{display:false}}});
+
+  layer.clearLayers();
+  const valid=rows.filter(r=>typeof r.latitud==="number" && typeof r.longitud==="number" && Math.abs(r.latitud)<=90 && Math.abs(r.longitud)<=180);
+  valid.forEach(r=>{
+    const m=L.circleMarker([r.latitud,r.longitud],{radius:5,weight:1,fillOpacity:.72});
+    m.bindPopup(`<strong>${clean(r.siniestro_fecha)} ${clean(r.siniestro_hora)}</strong><br>${clean(r.nombre_via)} ${r.altura_km?("· "+r.altura_km):""}<br>Semáforo: ${clean(r.semaforo)}<br>Vehículos: ${n(r.vehiculos)} · Heridos: ${n(r.heridos)} · Fallecidos: ${n(r.fallecidos)}`);
+    m.addTo(layer);
+  });
+
+  const j={};
+  rows.forEach(r=>{
+    const a=clean(r.nombre_via), b=clean(r.entre_calle_1), c=clean(r.entre_calle_2);
+    const refs=[b,c].filter(x=>x!=="Sin dato");
+    const key=refs.length ? `${a} / ${refs.join(" - ")}` : a;
+    if(!j[key]) j[key]={count:0,v:0,h:0,f:0};
+    j[key].count++; j[key].v+=n(r.vehiculos); j[key].h+=n(r.heridos); j[key].f+=n(r.fallecidos);
+  });
+  const jr=Object.entries(j).sort((a,b)=>b[1].count-a[1].count).slice(0,20);
+  document.getElementById("junctions").innerHTML=jr.map((x,i)=>`<tr><td>${i+1}</td><td>${x[0]}</td><td>${x[1].count}</td><td>${x[1].v}</td><td>${x[1].h}</td><td>${x[1].f}</td></tr>`).join("");
+
+  document.getElementById("detail").innerHTML=rows.slice(0,200).map(r=>`<tr>
+    <td>${clean(r.siniestro_fecha)}</td><td>${clean(r.siniestro_hora)}</td><td>${clean(r.nombre_via)}</td>
+    <td>${clean(r.entre_calle_1)}${r.entre_calle_2?(" / "+clean(r.entre_calle_2)):""}</td>
+    <td>${n(r.vehiculos)}</td><td>${n(r.heridos)}</td><td>${n(r.fallecidos)}</td>
+    <td>${clean(r.tipo_siniestro_multiple)}</td><td>${clean(r.semaforo)}</td>
+  </tr>`).join("");
+}
+["month","roadType","signal","accType"].forEach(id=>document.getElementById(id).addEventListener("change",update));
+document.getElementById("street").addEventListener("input",update);
+update();
+</script>
+</body>
+</html>
